@@ -1,0 +1,12 @@
+# Alauda temporary patch build (C1): `ko build` of the controller only.
+# Mirrors controller/Makefile `agentgateway-controller` (tags disable_pgv,agent; static base).
+defaultBaseImage: cgr.dev/chainguard/static
+builds:
+- id: controller
+  dir: .
+  main: ./controller/cmd/agentgateway
+  env: [CGO_ENABLED=0]
+  flags: [-trimpath, -tags=disable_pgv,agent]
+  ldflags:
+  - -s -w
+  - -X 'github.com/agentgateway/agentgateway/controller/pkg/version.Version={{.Env.VERSION}}'

@@ -298,6 +298,10 @@ func GatewayTransformationFunc(cfg GatewayCollectionConfig) func(ctx krt.Handler
 			},
 		)
 
+		// The internal port whose bind is the CONNECT re-entry wildcard bind, if any.
+		wildcardPort, wildcardErr := annotations.ParseConnectWildcardPort(
+			obj.GetAnnotations()[annotations.ConnectWildcardPort], internalPorts)
+
 		for i, l := range kgw.Listeners {
 			// Attached Routes count starts at 0 and gets updated later in the status syncer
 			// when the real count is available after route processing
@@ -342,6 +346,7 @@ func GatewayTransformationFunc(cfg GatewayCollectionConfig) func(ctx krt.Handler
 				Protocol:               l.Protocol,
 				TLSPassthrough:         l.TLS != nil && l.TLS.Mode != nil && *l.TLS.Mode == gwv1.TLSModePassthrough,
 				Internal:               internalPorts.Has(l.Port),
+				ConnectWildcard:        wildcardPort != 0 && l.Port == wildcardPort,
 			}
 
 			res := &GatewayListener{
@@ -373,6 +378,14 @@ func GatewayTransformationFunc(cfg GatewayCollectionConfig) func(ctx krt.Handler
 				Status:  metav1.ConditionFalse,
 				Reason:  gwv1.GatewayReasonInvalid,
 				Message: "invalid " + annotations.InternalPorts + " annotation: " + strings.Join(internalErrs, "; "),
+			})
+		}
+		if wildcardErr != "" {
+			gwReporter.SetCondition(reporter.GatewayCondition{
+				Type:    gwv1.GatewayConditionAccepted,
+				Status:  metav1.ConditionFalse,
+				Reason:  gwv1.GatewayReasonInvalid,
+				Message: "invalid " + annotations.ConnectWildcardPort + " annotation: " + wildcardErr,
 			})
 		}
 		// Sort by listener precedence

@@ -110,6 +110,10 @@ type ParentInfo struct {
 	// socket, no Service port, no container port. Sourced from the agentgateway.dev/internal-ports
 	// annotation on the listener's parent Gateway or ListenerSet.
 	Internal bool
+	// ConnectWildcard marks this listener's internal bind as the CONNECT re-entry wildcard bind
+	// (sent to the data plane with port 0). Sourced from the agentgateway.dev/connect-wildcard-port
+	// annotation on the listener's parent Gateway; only set together with Internal.
+	ConnectWildcard bool
 }
 
 func (g ParentInfo) Equals(other ParentInfo) bool {
@@ -124,6 +128,7 @@ func (g ParentInfo) Equals(other ParentInfo) bool {
 		g.Protocol == other.Protocol &&
 		g.TLSPassthrough == other.TLSPassthrough &&
 		g.Internal == other.Internal &&
+		g.ConnectWildcard == other.ConnectWildcard &&
 		g.CreationTimestamp == other.CreationTimestamp &&
 		slices.EqualFunc(g.AllowedKinds, other.AllowedKinds, func(a, b gwv1.RouteGroupKind) bool {
 			return a.Kind == b.Kind && ptr.Equal(a.Group, b.Group)
