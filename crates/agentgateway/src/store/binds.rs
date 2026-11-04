@@ -1638,6 +1638,30 @@ impl Store {
 			.map(|bind| self.bind_snapshot(bind))
 	}
 
+	/// find_connect_reentry_bind selects the bind that a CONNECT tunnel to `port` re-enters.
+	///
+	/// Without an internal wildcard bind this is the upstream lookup: a wildcard-address bind on
+	/// the port. Once an internal wildcard bind is configured, re-entry is restricted to internal
+	/// binds (by port, else the wildcard), so a CONNECT whose destination port happens to equal a
+	/// public listener's port (for example the CONNECT listener's own port) is not routed into
+	/// that public listener.
+	pub fn find_connect_reentry_bind(&self, port: u16) -> Option<BindSnapshot> {
+		if !self.binds.values().any(|b| b.is_wildcard()) {
+			return self.find_bind_by_port(port);
+		}
+		self
+			.binds
+			.values()
+			.find(|b| {
+				b.mode == agent::BindMode::Internal
+					&& b.address.ip().is_unspecified()
+					&& b.address.port() == port
+			})
+			.cloned()
+			.map(|bind| self.bind_snapshot(bind))
+			.or_else(|| self.find_wildcard_bind())
+	}
+
 	pub fn all_policies(&self) -> Vec<Arc<TargetedPolicy>> {
 		self.policies_by_key.values().cloned().collect()
 	}
@@ -2675,6 +2699,72 @@ mod tests {
 		assert!(
 			matches!(events.next().await, Some(BindEvent::Add(updated, _)) if updated.address == bind.address),
 			"changing a standard bind's address should open its new listener"
+		);
+	}
+
+	#[tokio::test]
+	async fn connect_reentry_bind_prefers_internal_binds_once_wildcard_exists() {
+		fn reserve_public_port() -> u16 {
+			let probe = StdTcpListener::bind("0.0.0.0:0").expect("reserve an available port");
+			probe.local_addr().expect("probe has an address").port()
+		}
+		fn bind(key: &'static str, address: SocketAddr, mode: agent::BindMode) -> Bind {
+			Bind {
+				key: strng::new(key),
+				address,
+				protocol: BindProtocol::http,
+				tunnel_protocol: TunnelProtocol::Direct,
+				mode,
+			}
+		}
+		let public_port = reserve_public_port();
+		let mut store = Store::with_ipv6_enabled(false);
+		store.insert_bind(bind(
+			"bind/public",
+			SocketAddr::from(([0, 0, 0, 0], public_port)),
+			agent::BindMode::Standard,
+		));
+		store.insert_bind(bind(
+			"bind/internal-8443",
+			"0.0.0.0:8443".parse().unwrap(),
+			agent::BindMode::Internal,
+		));
+		let key = |b: Option<BindSnapshot>| b.map(|b| b.bind.key.clone());
+
+		// No wildcard bind: upstream behaviour, any wildcard-address bind on the port is used.
+		assert_eq!(
+			key(store.find_connect_reentry_bind(public_port)),
+			Some(strng::literal!("bind/public"))
+		);
+		assert_eq!(
+			key(store.find_connect_reentry_bind(8443)),
+			Some(strng::literal!("bind/internal-8443"))
+		);
+		assert_eq!(key(store.find_connect_reentry_bind(9443)), None);
+
+		store.insert_bind(bind(
+			"bind/wildcard",
+			"0.0.0.0:0".parse().unwrap(),
+			agent::BindMode::Internal,
+		));
+		// Wildcard configured: the public bind on the same port is never re-entered.
+		assert_eq!(
+			key(store.find_connect_reentry_bind(public_port)),
+			Some(strng::literal!("bind/wildcard"))
+		);
+		// An internal bind on the exact port still wins over the wildcard.
+		assert_eq!(
+			key(store.find_connect_reentry_bind(8443)),
+			Some(strng::literal!("bind/internal-8443"))
+		);
+		assert_eq!(
+			key(store.find_connect_reentry_bind(9443)),
+			Some(strng::literal!("bind/wildcard"))
+		);
+		// The plain by-port lookup (used by HBONE re-entry) is unchanged.
+		assert_eq!(
+			key(store.find_bind_by_port(public_port)),
+			Some(strng::literal!("bind/public"))
 		);
 	}
 
