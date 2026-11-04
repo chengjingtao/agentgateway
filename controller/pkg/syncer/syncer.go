@@ -761,6 +761,7 @@ func (s *Syncer) buildBindsFromGateway(listeners []*translator.GatewayListener) 
 		protocol       api.Bind_Protocol
 		tunnelProtocol api.Bind_TunnelProtocol
 		sawInternal    bool
+		sawWildcard    bool
 	}
 	byPort := map[uint32]*bindInfo{}
 	for _, listener := range listeners {
@@ -787,6 +788,9 @@ func (s *Syncer) buildBindsFromGateway(listeners []*translator.GatewayListener) 
 			if listener.ParentInfo.Internal {
 				bi.sawInternal = true
 			}
+			if listener.ParentInfo.ConnectWildcard {
+				bi.sawWildcard = true
+			}
 		}
 	}
 
@@ -797,10 +801,18 @@ func (s *Syncer) buildBindsFromGateway(listeners []*translator.GatewayListener) 
 		if bi.sawInternal {
 			mode = api.Bind_INTERNAL
 		}
+		// The CONNECT re-entry wildcard bind is an internal bind with port 0 on the data plane
+		// (Bind::is_wildcard). Only an internal bind may become one: a standard bind with port 0
+		// would open a socket on a random port. The key keeps the declared port, so listeners
+		// (BindKey) still reference it.
+		xdsPort := port
+		if bi.sawWildcard && bi.sawInternal {
+			xdsPort = 0
+		}
 		bind := translator.AgwBind{
 			Bind: &api.Bind{
 				Key:            fmt.Sprint(port) + "/" + parentGateway.String(),
-				Port:           port,
+				Port:           xdsPort,
 				Protocol:       bi.protocol,
 				TunnelProtocol: bi.tunnelProtocol,
 				Mode:           mode,

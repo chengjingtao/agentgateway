@@ -24,6 +24,33 @@ const MCPServiceTargetName = "agentgateway.dev/mcp-target-name"
 // same object's listeners.
 const InternalPorts = "agentgateway.dev/internal-ports"
 
+// ConnectWildcardPort names one port of a Gateway's agentgateway.dev/internal-ports whose
+// internal bind becomes the CONNECT re-entry wildcard bind: it is sent to the data plane with
+// port 0, so a CONNECT tunnel whose target port matches no other bind of the gateway re-enters
+// this bind (and its listeners, routes and policies) instead of failing with BindNotFound.
+// One internal MITM listener can then serve CONNECT targets on any port. The Gateway API
+// listener keeps its declared port for status, routing and keys. Gateway only; at most one port.
+// Alauda temporary patch (C1); not upstream.
+const ConnectWildcardPort = "agentgateway.dev/connect-wildcard-port"
+
+// ParseConnectWildcardPort parses the ConnectWildcardPort annotation value. The port must be one
+// of internalPorts (the already-parsed internal-ports annotation of the same object). It returns
+// 0 when the annotation is unset, and an error message when the value is invalid.
+func ParseConnectWildcardPort(value string, internalPorts sets.Set[int32]) (int32, string) {
+	p := strings.TrimSpace(value)
+	if p == "" {
+		return 0, ""
+	}
+	n, err := strconv.ParseInt(p, 10, 32)
+	if err != nil || n < 1 || n > 65535 {
+		return 0, fmt.Sprintf("invalid port %q: must be a single integer between 1 and 65535", p)
+	}
+	if !internalPorts.Has(int32(n)) {
+		return 0, fmt.Sprintf("port %d is not listed in %s", n, InternalPorts)
+	}
+	return int32(n), ""
+}
+
 // ParseInternalPorts parses the InternalPorts annotation value into the set of ports
 // marked internal. isListenerPort reports whether a port is defined by the annotated
 // object's own listeners; any referenced port that is malformed, out of range, or not
