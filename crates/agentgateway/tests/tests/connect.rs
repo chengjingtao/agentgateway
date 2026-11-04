@@ -395,6 +395,66 @@ async fn incoming_connect_tunnel_reenters_wildcard_bind() {
 	);
 }
 
+/// Once an internal wildcard bind exists, CONNECT re-entry only considers internal binds: a
+/// `CONNECT host:<port>` whose port equals the public CONNECT listener's own port must land on
+/// the wildcard bind instead of re-entering the public (CONNECT-only) listener.
+#[tokio::test]
+async fn incoming_connect_tunnel_to_public_port_reenters_wildcard_bind() {
+	let mock = simple_mock().await;
+	let mut outer = simple_bind();
+	outer.key = strng::literal!("outer");
+	// Unspecified address, so the upstream by-port lookup would match it.
+	outer.address = "0.0.0.0:15013".parse().unwrap();
+	let mut inner = simple_bind();
+	inner.key = strng::literal!("bind/wildcard");
+	inner.mode = BindMode::Internal;
+	assert!(inner.is_wildcard());
+	let t = setup_proxy_test("{}")
+		.unwrap()
+		.with_backend(*mock.address())
+		.with_bind(outer)
+		.with_bind(inner)
+		.with_route(basic_route(*mock.address()))
+		.with_connect_mode_on_port(frontend::ConnectMode::Tunnel, 15013);
+
+	let mut io = t.serve_tunnel(strng::literal!("outer"));
+	io.write_all(
+		b"CONNECT harbor.example.com:15013 HTTP/1.1\r\nHost: harbor.example.com:15013\r\n\r\n",
+	)
+	.await
+	.unwrap();
+	let mut response = Vec::new();
+	loop {
+		let mut chunk = [0; 1024];
+		let n = io.read(&mut chunk).await.unwrap();
+		assert!(n > 0, "CONNECT response unexpectedly closed");
+		response.extend_from_slice(&chunk[..n]);
+		if response.windows(4).any(|w| w == b"\r\n\r\n") {
+			break;
+		}
+	}
+	assert!(
+		String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200 OK\r\n"),
+		"unexpected CONNECT response: {}",
+		String::from_utf8_lossy(&response),
+	);
+
+	// Re-entering the CONNECT-only outer listener would answer 405 to a plain GET.
+	io.write_all(b"GET /foo HTTP/1.1\r\nHost: lo\r\nConnection: close\r\n\r\n")
+		.await
+		.unwrap();
+	let mut tunneled = Vec::new();
+	tokio::time::timeout(Duration::from_secs(5), io.read_to_end(&mut tunneled))
+		.await
+		.expect("timed out waiting for tunneled HTTP response")
+		.unwrap();
+	assert!(
+		String::from_utf8_lossy(&tunneled).starts_with("HTTP/1.1 200 OK\r\n"),
+		"unexpected tunneled response: {}",
+		String::from_utf8_lossy(&tunneled),
+	);
+}
+
 /// Headers carried on a CONNECT request are captured and surfaced to CEL as
 /// `source.connectHeaders` on the re-entered (tunneled) request, so an
 /// authorization policy on the inner bind can match against them.

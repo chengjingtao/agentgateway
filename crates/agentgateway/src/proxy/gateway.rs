@@ -753,11 +753,9 @@ impl Gateway {
 							// CONNECT re-entry must not expose a bind scoped to a concrete address
 							// (for example, a loopback-only listener). Match only an unspecified-address
 							// bind for this port; otherwise fall back to the explicit internal wildcard
-							// bind, preserving the requested address as the tunnel target.
-							let Some(bind) = binds
-								.find_bind_by_port(addr.port())
-								.or_else(|| binds.find_wildcard_bind())
-							else {
+							// bind, preserving the requested address as the tunnel target. When a wildcard
+							// bind exists, only internal binds are eligible (see find_connect_reentry_bind).
+							let Some(bind) = binds.find_connect_reentry_bind(addr.port()) else {
 								return Ok(ProxyError::BindNotFound.into_response_with_grpc(false));
 							};
 							(addr, bind)
@@ -766,11 +764,10 @@ impl Gateway {
 								return Ok(ProxyError::InvalidRequest.into_response_with_grpc(false));
 							};
 							// Match a bind by the requested port; otherwise fall back to the internal
-							// wildcard bind, which serves any destination port via a dynamic backend.
-							let Some(bind) = binds
-								.find_bind_by_port(port)
-								.or_else(|| binds.find_wildcard_bind())
-							else {
+							// wildcard bind, which serves any destination port via a dynamic backend. When a
+							// wildcard bind exists, only internal binds are eligible (see
+							// find_connect_reentry_bind).
+							let Some(bind) = binds.find_connect_reentry_bind(port) else {
 								return Ok(ProxyError::BindNotFound.into_response_with_grpc(false));
 							};
 							let target_ip = if bind.address.ip().is_unspecified() {
