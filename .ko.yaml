@@ -5,8 +5,8 @@ builds:
 - id: controller
   dir: .
   main: ./controller/cmd/agentgateway
-  env: [CGO_ENABLED=0]
-  flags: [-trimpath, -tags=disable_pgv,agent]
+  env: [CGO_ENABLED=0, "GOFLAGS=-p=2 -tags=disable_pgv,agent"]
+  flags: [-trimpath]
   ldflags:
   - -s -w
   - -X 'github.com/agentgateway/agentgateway/controller/pkg/version.Version={{.Env.VERSION}}'
