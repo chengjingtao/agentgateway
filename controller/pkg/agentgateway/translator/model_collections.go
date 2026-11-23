@@ -808,6 +808,7 @@ func modelBackendPolicy(policies *agentgateway.ModelPolicies) *agentgateway.Back
 	backend.BackendSimple.TLS = policies.TLS
 	backend.BackendSimple.Tunnel = policies.Tunnel
 	backend.Health = policies.Health
+	backend.ExtAuth = policies.ExtAuth
 	if policies.PromptGuard != nil {
 		backend.AI = &agentgateway.BackendAI{PromptGuard: policies.PromptGuard}
 	}

@@ -1,0 +1,394 @@
+# Model-level extAuth (S2-AGW-01, S2-AGW-02): each concrete model carries its own
+# ext_authz backend policy with its own contextExtensions; a failover virtual model
+# reuses each target model's inline policies. The Broker Service lives in another
+# namespace and is allowed by a ReferenceGrant from AgentgatewayModel.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: model-extauth
+  namespace: default
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+  - name: llm
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      kinds:
+      - group: agentgateway.dev
+        kind: AgentgatewayModel
+      namespaces:
+        from: Same
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-credential-broker
+  namespace: broker
+spec:
+  ports:
+  - port: 9000
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: models-to-broker
+  namespace: broker
+spec:
+  from:
+  - group: agentgateway.dev
+    kind: AgentgatewayModel
+    namespace: default
+  to:
+  - group: ""
+    kind: Service
+    name: mcp-credential-broker
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: provider-a
+  namespace: default
+spec:
+  parentRefs:
+  - name: model-extauth
+    sectionName: llm
+  match:
+    model: '*'
+  provider: OpenAI
+  policies:
+    extAuth:
+      backendRef:
+        kind: Service
+        name: mcp-credential-broker
+        namespace: broker
+        port: 9000
+      failureMode: FailClosed
+      grpc:
+        contextExtensions:
+          targetKind: AgentgatewayModel
+          target: default/provider-a
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: provider-b
+  namespace: default
+spec:
+  parentRefs:
+  - name: model-extauth
+    sectionName: llm
+  match:
+    model: gemini-*
+  provider: OpenAI
+  policies:
+    extAuth:
+      backendRef:
+        kind: Service
+        name: mcp-credential-broker
+        namespace: broker
+        port: 9000
+      failureMode: FailClosed
+      grpc:
+        contextExtensions:
+          targetKind: AgentgatewayModel
+          target: default/provider-b
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: resilient
+  namespace: default
+spec:
+  parentRefs:
+  - name: model-extauth
+    sectionName: llm
+  virtualModel:
+    failover:
+      targets:
+      - modelRef:
+          name: provider-a
+        model: gpt-x
+        priority: 0
+      - modelRef:
+          name: provider-b
+        model: gemini-x
+        priority: 1
+
+---
+# Output
+output:
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    backend:
+      ai:
+        providerGroups:
+        - providers:
+          - inlinePolicies:
+            - extAuthz:
+                grpc:
+                  context:
+                    target: default/provider-a
+                    targetKind: AgentgatewayModel
+                target:
+                  port: 9000
+                  service:
+                    hostname: mcp-credential-broker.broker.svc.cluster.local
+                    namespace: broker
+            name: backend
+            openai: {}
+      key: default/provider-a/backend.llm
+      name:
+        name: provider-a
+        namespace: default
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    backend:
+      ai:
+        providerGroups:
+        - providers:
+          - inlinePolicies:
+            - extAuthz:
+                grpc:
+                  context:
+                    target: default/provider-b
+                    targetKind: AgentgatewayModel
+                target:
+                  port: 9000
+                  service:
+                    hostname: mcp-credential-broker.broker.svc.cluster.local
+                    namespace: broker
+            name: backend
+            openai: {}
+      key: default/provider-b/backend.llm
+      name:
+        name: provider-b
+        namespace: default
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    backend:
+      ai:
+        providerGroups:
+        - providers:
+          - inlinePolicies:
+            - extAuthz:
+                grpc:
+                  context:
+                    target: default/provider-a
+                    targetKind: AgentgatewayModel
+                target:
+                  port: 9000
+                  service:
+                    hostname: mcp-credential-broker.broker.svc.cluster.local
+                    namespace: broker
+            name: provider-a
+            openai:
+              model: gpt-x
+        - providers:
+          - inlinePolicies:
+            - extAuthz:
+                grpc:
+                  context:
+                    target: default/provider-b
+                    targetKind: AgentgatewayModel
+                target:
+                  port: 9000
+                  service:
+                    hostname: mcp-credential-broker.broker.svc.cluster.local
+                    namespace: broker
+            name: provider-b
+            openai:
+              model: gemini-x
+      key: default/resilient/failover.llm
+      name:
+        name: resilient
+        namespace: default
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    bind:
+      key: 80/default/model-extauth
+      port: 80
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    listener:
+      bindKey: 80/default/model-extauth
+      key: default/model-extauth.llm
+      name:
+        gatewayName: model-extauth
+        gatewayNamespace: default
+        listenerName: llm
+      protocol: HTTP
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    modelRoute:
+      concreteModel:
+        backend:
+          backend: default/provider-a/backend.llm
+        discoveryProvider: openai
+      key: default/provider-a.llm
+      listenerKey: default/model-extauth.llm
+      match:
+        model: '*'
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    modelRoute:
+      concreteModel:
+        backend:
+          backend: default/provider-b/backend.llm
+        discoveryProvider: openai
+      key: default/provider-b.llm
+      listenerKey: default/model-extauth.llm
+      match:
+        model: gemini-*
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    modelRoute:
+      key: default/resilient.llm
+      listenerKey: default/model-extauth.llm
+      match:
+        model: resilient
+      virtualModel:
+        failover:
+          backend:
+            backend: default/resilient/failover.llm
+status:
+- apiVersion: agentgateway.dev/v1alpha1
+  kind: AgentgatewayModel
+  metadata:
+    name: provider-a
+    namespace: default
+  spec: null
+  status:
+    parents:
+    - conditions:
+      - lastTransitionTime: fake
+        message: Successfully accepted AgentgatewayModel
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: ""
+        reason: ResolvedRefs
+        status: "True"
+        type: ResolvedRefs
+      controllerName: agentgateway.dev/agentgateway
+      parentRef:
+        group: gateway.networking.k8s.io
+        kind: Gateway
+        name: model-extauth
+        namespace: default
+        sectionName: llm
+- apiVersion: agentgateway.dev/v1alpha1
+  kind: AgentgatewayModel
+  metadata:
+    name: provider-b
+    namespace: default
+  spec: null
+  status:
+    parents:
+    - conditions:
+      - lastTransitionTime: fake
+        message: Successfully accepted AgentgatewayModel
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: ""
+        reason: ResolvedRefs
+        status: "True"
+        type: ResolvedRefs
+      controllerName: agentgateway.dev/agentgateway
+      parentRef:
+        group: gateway.networking.k8s.io
+        kind: Gateway
+        name: model-extauth
+        namespace: default
+        sectionName: llm
+- apiVersion: agentgateway.dev/v1alpha1
+  kind: AgentgatewayModel
+  metadata:
+    name: resilient
+    namespace: default
+  spec: null
+  status:
+    parents:
+    - conditions:
+      - lastTransitionTime: fake
+        message: Successfully accepted AgentgatewayModel
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: ""
+        reason: ResolvedRefs
+        status: "True"
+        type: ResolvedRefs
+      controllerName: agentgateway.dev/agentgateway
+      parentRef:
+        group: gateway.networking.k8s.io
+        kind: Gateway
+        name: model-extauth
+        namespace: default
+        sectionName: llm
+- apiVersion: gateway.networking.k8s.io/v1
+  kind: Gateway
+  metadata:
+    name: model-extauth
+    namespace: default
+  spec: null
+  status:
+    attachedListenerSets: 0
+    conditions:
+    - lastTransitionTime: fake
+      message: ""
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: fake
+      message: Successfully programmed Gateway
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    listeners:
+    - attachedRoutes: 3
+      conditions:
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: NoConflicts
+        status: "False"
+        type: Conflicted
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: Programmed
+        status: "True"
+        type: Programmed
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: ResolvedRefs
+        status: "True"
+        type: ResolvedRefs
+      name: llm
+      supportedKinds:
+      - group: agentgateway.dev
+        kind: AgentgatewayModel

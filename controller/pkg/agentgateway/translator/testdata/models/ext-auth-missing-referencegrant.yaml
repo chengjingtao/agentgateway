@@ -1,0 +1,204 @@
+# Model-level extAuth (S2-AGW-01) without a ReferenceGrant: a cross-namespace
+# backendRef from AgentgatewayModel must be rejected and reported in model status.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: model-extauth
+  namespace: default
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+  - name: llm
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      kinds:
+      - group: agentgateway.dev
+        kind: AgentgatewayModel
+      namespaces:
+        from: Same
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-credential-broker
+  namespace: broker
+spec:
+  ports:
+  - port: 9000
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: provider-a
+  namespace: default
+spec:
+  parentRefs:
+  - name: model-extauth
+    sectionName: llm
+  match:
+    model: '*'
+  provider: OpenAI
+  policies:
+    extAuth:
+      backendRef:
+        kind: Service
+        name: mcp-credential-broker
+        namespace: broker
+        port: 9000
+      failureMode: FailClosed
+      grpc:
+        contextExtensions:
+          targetKind: AgentgatewayModel
+          target: default/provider-a
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: provider-b
+  namespace: default
+spec:
+  parentRefs:
+  - name: model-extauth
+    sectionName: llm
+  match:
+    model: gemini-*
+  provider: OpenAI
+  policies:
+    extAuth:
+      backendRef:
+        kind: Service
+        name: mcp-credential-broker
+        namespace: broker
+        port: 9000
+      failureMode: FailClosed
+      grpc:
+        contextExtensions:
+          targetKind: AgentgatewayModel
+          target: default/provider-b
+
+---
+# Output
+output:
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    bind:
+      key: 80/default/model-extauth
+      port: 80
+- gateway:
+    Name: model-extauth
+    Namespace: default
+  resource:
+    listener:
+      bindKey: 80/default/model-extauth
+      key: default/model-extauth.llm
+      name:
+        gatewayName: model-extauth
+        gatewayNamespace: default
+        listenerName: llm
+      protocol: HTTP
+status:
+- apiVersion: agentgateway.dev/v1alpha1
+  kind: AgentgatewayModel
+  metadata:
+    name: provider-a
+    namespace: default
+  spec: null
+  status:
+    parents:
+    - conditions:
+      - lastTransitionTime: fake
+        message: Successfully accepted AgentgatewayModel
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: 'failed to build extAuth: backendRef broker/mcp-credential-broker
+          not accessible to an AgentgatewayModel in namespace "default" (missing a
+          ReferenceGrant?)'
+        reason: Invalid
+        status: "False"
+        type: ResolvedRefs
+      controllerName: agentgateway.dev/agentgateway
+      parentRef:
+        group: gateway.networking.k8s.io
+        kind: Gateway
+        name: model-extauth
+        namespace: default
+        sectionName: llm
+- apiVersion: agentgateway.dev/v1alpha1
+  kind: AgentgatewayModel
+  metadata:
+    name: provider-b
+    namespace: default
+  spec: null
+  status:
+    parents:
+    - conditions:
+      - lastTransitionTime: fake
+        message: Successfully accepted AgentgatewayModel
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: 'failed to build extAuth: backendRef broker/mcp-credential-broker
+          not accessible to an AgentgatewayModel in namespace "default" (missing a
+          ReferenceGrant?)'
+        reason: Invalid
+        status: "False"
+        type: ResolvedRefs
+      controllerName: agentgateway.dev/agentgateway
+      parentRef:
+        group: gateway.networking.k8s.io
+        kind: Gateway
+        name: model-extauth
+        namespace: default
+        sectionName: llm
+- apiVersion: gateway.networking.k8s.io/v1
+  kind: Gateway
+  metadata:
+    name: model-extauth
+    namespace: default
+  spec: null
+  status:
+    attachedListenerSets: 0
+    conditions:
+    - lastTransitionTime: fake
+      message: ""
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: fake
+      message: Successfully programmed Gateway
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    listeners:
+    - attachedRoutes: 2
+      conditions:
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: NoConflicts
+        status: "False"
+        type: Conflicted
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: Programmed
+        status: "True"
+        type: Programmed
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: ResolvedRefs
+        status: "True"
+        type: ResolvedRefs
+      name: llm
+      supportedKinds:
+      - group: agentgateway.dev
+        kind: AgentgatewayModel
