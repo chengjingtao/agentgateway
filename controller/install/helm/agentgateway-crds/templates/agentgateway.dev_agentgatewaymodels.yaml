@@ -1423,6 +1423,275 @@ spec:
                     required:
                     - policy
                     type: object
+                  extAuth:
+                    description: |-
+                      External authorization applied to requests sent to this model provider.
+                      It runs after this model is selected, as a backend policy of the model,
+                      so it only sees requests routed to this model (including when this model
+                      is a failover target). A cross-namespace backendRef requires a
+                      ReferenceGrant from AgentgatewayModel.
+                      Fork-only (Alauda): this field is not part of upstream agentgateway and
+                      has not been accepted upstream. It may be removed in a future release.
+                    properties:
+                      backendRef:
+                        description: |-
+                          `backendRef` selects a backend for this policy.
+                          Mutually exclusive with `url`.
+                        properties:
+                          group:
+                            default: ""
+                            description: Group of the referent, for example `gateway.networking.k8s.io`.
+                              Empty selects the core API group
+                            maxLength: 253
+                            pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          kind:
+                            default: Service
+                            description: Kubernetes resource kind of the referent,
+                              for example `Service`. Defaults to `Service`
+                            maxLength: 63
+                            minLength: 1
+                            pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
+                            type: string
+                          name:
+                            description: Name is the name of the referent.
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: Namespace of the referent. Defaults to the
+                              local namespace. A cross-namespace reference requires
+                              a ReferenceGrant in the referent namespace
+                            maxLength: 63
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                            type: string
+                          port:
+                            description: Destination port number. Required when the
+                              referent is a Kubernetes `Service`
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                        required:
+                        - name
+                        type: object
+                        x-kubernetes-validations:
+                        - message: Must have port for Service reference
+                          rule: '(size(self.group) == 0 && self.kind == ''Service'')
+                            ? has(self.port) : true'
+                      cache:
+                        description: |-
+                          Caches authorization results.
+
+                          WARNING: the safety of this feature depends on the cache key accurately
+                          capturing every request property that the authorization service uses to
+                          make a decision. For example, if the service returns different results
+                          based on both path and authorization header, both must be included in
+                          `key`; otherwise, one request may incorrectly reuse another request's
+                          authorization result.
+
+                          If any key expression fails to evaluate or produces an unsupported value,
+                          the request is still sent to the authorization service, but its result is
+                          not read from or written to the cache.
+                        properties:
+                          key:
+                            description: |-
+                              Ordered list of CEL expressions evaluated against the request
+                              to construct the cache key.
+                            items:
+                              description: A Common Expression Language (CEL) expression.
+                              maxLength: 16384
+                              minLength: 1
+                              type: string
+                            maxItems: 16
+                            minItems: 1
+                            type: array
+                          maxEntries:
+                            description: |-
+                              Maximum number of authorization results to keep in
+                              the cache. If unset, this defaults to 10000.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          ttl:
+                            description: |-
+                              Duration string, such as `5m`, or a CEL expression that
+                              returns the duration that cached authorization results may be reused, or a
+                              timestamp when the cached authorization result expires. The expression is
+                              evaluated after the authorization response has been applied to the request.
+                            maxLength: 16384
+                            minLength: 1
+                            type: string
+                        required:
+                        - key
+                        - ttl
+                        type: object
+                      failureMode:
+                        description: |-
+                          Behavior when the external authorization service is
+                          unavailable or returns an error. "FailOpen" allows the request to continue.
+                          "FailClosed" (default) denies the request.
+                        enum:
+                        - FailClosed
+                        - FailOpen
+                        type: string
+                      forwardBody:
+                        description: |-
+                          Whether to include the HTTP body in the authorization request.
+                          If enabled, the request body will be buffered.
+                        properties:
+                          maxSize:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: |-
+                              Largest body, in bytes, that will be buffered
+                              and sent to the authorization server. If the body size is larger than
+                              `maxSize`, then the request will be rejected with a response.
+                            maxLength: 32
+                            minLength: 1
+                            pattern: ^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)(([KMGTPE]i)|[numkMGTPE]|[eE](\+?0*([0-9]|1[0-8])|-0*[0-9]))?$
+                            x-kubernetes-int-or-string: true
+                            x-kubernetes-validations:
+                            - message: value must be at least 1 byte and fit within
+                                uint32
+                              rule: (self >= 1 && self <= 4294967295) || self.size()
+                                > 0
+                        required:
+                        - maxSize
+                        type: object
+                      grpc:
+                        description: |-
+                          Uses the gRPC External Authorization
+                          [protocol](https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/auth/v3/external_auth.proto) should be used.
+                        properties:
+                          contextExtensions:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Additional arbitrary key-value pairs to
+                              send to the authorization server in the `context_extensions` field.
+                            maxProperties: 64
+                            type: object
+                          requestMetadata:
+                            additionalProperties:
+                              description: A Common Expression Language (CEL) expression.
+                              maxLength: 16384
+                              minLength: 1
+                              type: string
+                            description: |-
+                              Metadata to send to the authorization
+                              server. This maps to the `metadata_context.filter_metadata` field of the
+                              request, and allows dynamic CEL expressions. If unset, by default the
+                              `envoy.filters.http.jwt_authn` key is set if the JWT policy is used as
+                              well, for compatibility.
+                            maxProperties: 64
+                            type: object
+                        type: object
+                      http:
+                        description: |-
+                          Uses HTTP to connect to
+                          the authorization server. The authorization server must return a `200`
+                          status code, otherwise the request is considered an authorization
+                          failure.
+                        properties:
+                          addRequestHeaders:
+                            additionalProperties:
+                              description: A Common Expression Language (CEL) expression.
+                              maxLength: 16384
+                              minLength: 1
+                              type: string
+                            description: |-
+                              Additional headers to add to the
+                              request to the authorization server. While `allowedRequestHeaders` just
+                              passes the original headers through, `addRequestHeaders` allows defining
+                              custom headers based on CEL expressions.
+                            maxProperties: 64
+                            type: object
+                          allowedRequestHeaders:
+                            description: |-
+                              Additional headers from the client request that
+                              will be sent to the authorization server.
+
+                              If unset, the following headers are sent by default: `Authorization`.
+                            items:
+                              maxLength: 256
+                              minLength: 1
+                              type: string
+                            maxItems: 64
+                            type: array
+                          allowedResponseHeaders:
+                            description: |-
+                              Headers from the authorization response that
+                              will be copied into the request to the backend.
+                            items:
+                              maxLength: 256
+                              minLength: 1
+                              type: string
+                            maxItems: 64
+                            type: array
+                          body:
+                            description: |-
+                              Body is a CEL expression that produces the HTTP authorization request body.
+                              Strings and bytes are used directly; other values are JSON-encoded.
+                            maxLength: 16384
+                            minLength: 1
+                            type: string
+                          path:
+                            description: |-
+                              Path to send to the authorization server. If
+                              unset, this defaults to the original request path.
+                              This is a CEL expression, which allows customizing the path based on the
+                              incoming request. For example, to add a prefix, use
+                              `"/prefix/" + request.path`.
+                            maxLength: 16384
+                            minLength: 1
+                            type: string
+                          redirect:
+                            description: |-
+                              Optional expression that determines a path to
+                              redirect to on authorization failure. This is useful to redirect to a
+                              sign-in page.
+                            maxLength: 16384
+                            minLength: 1
+                            type: string
+                          responseMetadata:
+                            additionalProperties:
+                              description: A Common Expression Language (CEL) expression.
+                              maxLength: 16384
+                              minLength: 1
+                              type: string
+                            description: |-
+                              Metadata fields to construct
+                              from the authorization response. These will be included under the
+                              `extauthz` variable in future CEL expressions. Setting this is useful
+                              for things like logging usernames, without needing to include them as
+                              headers to the backend, as `allowedResponseHeaders` would.
+                            maxProperties: 64
+                            type: object
+                        type: object
+                      url:
+                        description: |-
+                          `url` directly specifies the HTTP(S) endpoint for this policy.
+                          When the scheme is `https`, backend TLS is enabled automatically.
+                          Mutually exclusive with `backendRef`.
+                          URLs are opaque; referencing a Kubernetes service hostname like `hello.ns.svc.cluster.local`
+                          will not apply Service policies or load balancing.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^https?://[^/?#@]+(/[^?#]*)?$
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: forwardBody cannot be used with http.body
+                      rule: '!(has(self.forwardBody) && has(self.http) && has(self.http.body))'
+                    - message: url path is only valid with http
+                      rule: '!has(self.url) || !self.url.matches(''^https?://[^/?#]+/'')
+                        || has(self.http)'
+                    - message: http.path may not be set when url includes a path
+                      rule: '!has(self.url) || !self.url.matches(''^https?://[^/?#]+/'')
+                        || !has(self.http) || !has(self.http.path)'
                   finalTransformations:
                     description: |-
                       CEL transformations applied to fields in the provider request body.
@@ -5256,10 +5525,10 @@ spec:
                       rule: '!has(self.url) || self.url.matches(''^https?://[^/?#]+$'')'
                 type: object
                 x-kubernetes-validations:
-                - message: at least one of the fields in [auth authorization finalTransformations
-                    headers health promptGuard tls transformations tunnel] must be
-                    set
-                  rule: '[has(self.auth),has(self.authorization),has(self.finalTransformations),has(self.headers),has(self.health),has(self.promptGuard),has(self.tls),has(self.transformations),has(self.tunnel)].filter(x,x==true).size()
+                - message: at least one of the fields in [auth authorization extAuth
+                    finalTransformations headers health promptGuard tls transformations
+                    tunnel] must be set
+                  rule: '[has(self.auth),has(self.authorization),has(self.extAuth),has(self.finalTransformations),has(self.headers),has(self.health),has(self.promptGuard),has(self.tls),has(self.transformations),has(self.tunnel)].filter(x,x==true).size()
                     >= 1'
               provider:
                 description: |-

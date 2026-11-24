@@ -4426,6 +4426,11 @@ func (in *ModelPolicies) DeepCopyInto(out *ModelPolicies) {
 		*out = new(ModelBackendAuth)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.ExtAuth != nil {
+		in, out := &in.ExtAuth, &out.ExtAuth
+		*out = new(ExtAuth)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Health != nil {
 		in, out := &in.Health, &out.Health
 		*out = new(Health)

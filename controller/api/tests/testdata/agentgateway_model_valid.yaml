@@ -229,3 +229,27 @@ spec:
     guardrail:
       identifier: test-guardrail
       version: "1"
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: model-ext-auth
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  match:
+    model: '*'
+  provider: OpenAI
+  policies:
+    extAuth:
+      backendRef:
+        kind: Service
+        name: mcp-credential-broker
+        namespace: broker
+        port: 9000
+      failureMode: FailClosed
+      grpc:
+        contextExtensions:
+          targetKind: AgentgatewayModel
+          target: default/model-ext-auth

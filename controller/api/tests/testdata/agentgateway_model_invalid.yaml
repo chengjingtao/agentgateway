@@ -181,3 +181,23 @@ spec:
     guardrail:
       identifier: test-guardrail
       version: "1"
+---
+_err: forwardBody cannot be used with http.body
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: model-ext-auth-body-conflict
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  provider: OpenAI
+  policies:
+    extAuth:
+      backendRef:
+        name: authz
+        port: 9000
+      http:
+        body: '"x"'
+      forwardBody:
+        maxSize: 1Ki

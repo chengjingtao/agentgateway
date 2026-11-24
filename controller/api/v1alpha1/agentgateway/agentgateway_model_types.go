@@ -148,6 +148,16 @@ type ModelPolicies struct {
 	// +optional
 	Auth *ModelBackendAuth `json:"auth,omitempty"`
 
+	// External authorization applied to requests sent to this model provider.
+	// It runs after this model is selected, as a backend policy of the model,
+	// so it only sees requests routed to this model (including when this model
+	// is a failover target). A cross-namespace backendRef requires a
+	// ReferenceGrant from AgentgatewayModel.
+	// Fork-only (Alauda): this field is not part of upstream agentgateway and
+	// has not been accepted upstream. It may be removed in a future release.
+	// +optional
+	ExtAuth *ExtAuth `json:"extAuth,omitempty"`
+
 	// Health checking and eviction behavior for this model provider.
 	// +optional
 	Health *Health `json:"health,omitempty"`
