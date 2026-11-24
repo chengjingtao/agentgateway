@@ -153,6 +153,8 @@ type ModelPolicies struct {
 	// so it only sees requests routed to this model (including when this model
 	// is a failover target). A cross-namespace backendRef requires a
 	// ReferenceGrant from AgentgatewayModel.
+	// Fork-only (Alauda): this field is not part of upstream agentgateway and
+	// has not been accepted upstream. It may be removed in a future release.
 	// +optional
 	ExtAuth *ExtAuth `json:"extAuth,omitempty"`
 
